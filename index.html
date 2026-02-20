@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>木鱼节拍器</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      overflow: hidden;
+      background: #1a1a2e;
+      font-family: system-ui, -apple-system, sans-serif;
+      color: #e0e0e0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #canvas-container {
+      width: 100%;
+      flex: 1;
+      min-height: 0;
+      position: relative;
+    }
+
+    #three-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .controls {
+      position: relative;
+      width: 100%;
+      padding: 20px 30px;
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      flex-shrink: 0;
+    }
+
+    #playBtn {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: #e0a040;
+      border: none;
+      cursor: pointer;
+      font-size: 24px;
+      color: #1a1a2e;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s, transform 0.1s;
+      flex-shrink: 0;
+    }
+
+    #playBtn:hover {
+      background: #f0b050;
+    }
+
+    #playBtn:active {
+      transform: scale(0.95);
+    }
+
+    .bpm-control {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .bpm-label {
+      font-size: 13px;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    #bpmSlider {
+      width: 200px;
+      accent-color: #e0a040;
+      cursor: pointer;
+    }
+
+    #bpmInput {
+      width: 60px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 6px;
+      color: #e0e0e0;
+      font-size: 18px;
+      font-weight: 600;
+      text-align: center;
+      padding: 4px;
+      font-family: inherit;
+    }
+
+    #bpmInput:focus {
+      outline: none;
+      border-color: #e0a040;
+    }
+
+    #beatIndicator {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #333;
+      transition: background 0.05s, box-shadow 0.05s;
+      flex-shrink: 0;
+    }
+
+    #beatIndicator.active {
+      background: #e0a040;
+      box-shadow: 0 0 20px #e0a040, 0 0 40px rgba(224, 160, 64, 0.3);
+    }
+
+    /* Loading overlay */
+    #loadingOverlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: #1a1a2e;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      transition: opacity 0.5s;
+    }
+
+    #loadingOverlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .loading-text {
+      font-size: 18px;
+      color: #888;
+      margin-bottom: 16px;
+    }
+
+    .loading-bar {
+      width: 200px;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .loading-bar-fill {
+      height: 100%;
+      background: #e0a040;
+      width: 0%;
+      transition: width 0.3s;
+    }
+  </style>
+</head>
+<body>
+  <div id="loadingOverlay">
+    <div class="loading-text" id="loadingText">加载模型中...</div>
+    <div class="loading-bar">
+      <div class="loading-bar-fill" id="loadingBarFill"></div>
+    </div>
+  </div>
+
+  <div id="canvas-container">
+    <canvas id="three-canvas"></canvas>
+  </div>
+
+  <div class="controls">
+    <button id="playBtn">&#9654;</button>
+    <div id="beatIndicator"></div>
+    <div class="bpm-control">
+      <span class="bpm-label">BPM</span>
+      <input type="range" id="bpmSlider" min="40" max="208" value="120">
+      <input type="number" id="bpmInput" min="40" max="208" value="120">
+    </div>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+
+    // ==================== Three.js Scene ====================
+    const container = document.getElementById('canvas-container');
+    const canvas = document.getElementById('three-canvas');
+    const scene = new THREE.Scene();
+
+    // Gradient background texture (top: deep blue -> mid: indigo -> bottom: deep purple)
+    {
+      const bgCanvas = document.createElement('canvas');
+      bgCanvas.width = 2;
+      bgCanvas.height = 512;
+      const ctx = bgCanvas.getContext('2d');
+      const gradient = ctx.createLinearGradient(0, 0, 0, 512);
+      gradient.addColorStop(0, '#0d0d1a');
+      gradient.addColorStop(0.5, '#1a1a3e');
+      gradient.addColorStop(1, '#16132b');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, 2, 512);
+      const bgTexture = new THREE.CanvasTexture(bgCanvas);
+      bgTexture.colorSpace = THREE.SRGBColorSpace;
+      scene.background = bgTexture;
+    }
+
+    const camera = new THREE.PerspectiveCamera(
+      45,
+      container.clientWidth / container.clientHeight,
+      0.1,
+      1000
+    );
+    camera.position.set(0, 1, 3);
+
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    // Lighting
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambientLight);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(5, 10, 7);
+    scene.add(dirLight);
+
+    // OrbitControls
+    const controls = new OrbitControls(camera, canvas);
+    controls.enableDamping = true;
+    controls.target.set(0, 0.5, 0);
+
+    // ==================== Floating Particles ====================
+    const PARTICLE_COUNT = 260;
+    const particleGeometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(PARTICLE_COUNT * 3);
+    const colors = new Float32Array(PARTICLE_COUNT * 3);
+    const sizes = new Float32Array(PARTICLE_COUNT);
+    const speeds = new Float32Array(PARTICLE_COUNT); // individual drift speed
+    const phases = new Float32Array(PARTICLE_COUNT); // for breathing alpha
+
+    const warmColor = new THREE.Color(0xe0a040); // gold
+    const coolColor = new THREE.Color(0xaabbcc); // cool white
+
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      // Spread particles in a wide box behind and around the model
+      positions[i * 3]     = (Math.random() - 0.5) * 12;  // x
+      positions[i * 3 + 1] = (Math.random() - 0.5) * 8;   // y
+      positions[i * 3 + 2] = (Math.random() - 0.5) * 10 - 2; // z (mostly behind)
+
+      // Mix warm and cool colors randomly
+      const mix = Math.random();
+      const c = warmColor.clone().lerp(coolColor, mix);
+      colors[i * 3]     = c.r;
+      colors[i * 3 + 1] = c.g;
+      colors[i * 3 + 2] = c.b;
+
+      sizes[i] = Math.random() * 3 + 1;
+      speeds[i] = Math.random() * 0.15 + 0.05;
+      phases[i] = Math.random() * Math.PI * 2;
+    }
+
+    particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    particleGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    particleGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+    // Generate circular particle texture
+    const particleTexture = (() => {
+      const c = document.createElement('canvas');
+      c.width = 64;
+      c.height = 64;
+      const ctx = c.getContext('2d');
+      const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+      grad.addColorStop(0, 'rgba(255,255,255,1)');
+      grad.addColorStop(0.3, 'rgba(255,255,255,0.6)');
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 64, 64);
+      const tex = new THREE.CanvasTexture(c);
+      return tex;
+    })();
+
+    const particleMaterial = new THREE.PointsMaterial({
+      size: 0.06,
+      map: particleTexture,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.6,
+      sizeAttenuation: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+
+    const particles = new THREE.Points(particleGeometry, particleMaterial);
+    scene.add(particles);
+
+    // ==================== GLB Loading ====================
+    let mixer = null;
+    let action = null;
+    let animDuration = 0; // original animation duration in seconds
+
+    const loader = new GLTFLoader();
+    loader.setMeshoptDecoder(MeshoptDecoder);
+    loader.load(
+      'test4-optimized.glb',
+      (gltf) => {
+        scene.add(gltf.scene);
+
+        // Auto-fit camera to model
+        const box = new THREE.Box3().setFromObject(gltf.scene);
+        const center = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3()).length();
+        camera.position.copy(center).add(new THREE.Vector3(0, size * 0.3, size * 1.2));
+        controls.target.copy(center);
+        controls.update();
+
+        // Animation setup
+        if (gltf.animations.length > 0) {
+          mixer = new THREE.AnimationMixer(gltf.scene);
+          const clip = gltf.animations[0];
+          animDuration = clip.duration;
+          action = mixer.clipAction(clip);
+          action.setLoop(THREE.LoopRepeat);
+          action.clampWhenFinished = false;
+          action.enabled = true;
+          console.log(
+            `Animation loaded: "${clip.name}", duration: ${animDuration.toFixed(3)}s, tracks: ${clip.tracks.length}`
+          );
+        }
+
+        // Hide loading overlay
+        const overlay = document.getElementById('loadingOverlay');
+        overlay.classList.add('hidden');
+        setTimeout(() => overlay.style.display = 'none', 500);
+      },
+      (progress) => {
+        if (progress.total > 0) {
+          const pct = (progress.loaded / progress.total) * 100;
+          document.getElementById('loadingBarFill').style.width = pct + '%';
+          document.getElementById('loadingText').textContent =
+            `加载模型中... ${pct.toFixed(0)}%`;
+        }
+      },
+      (error) => {
+        console.error('GLB load error:', error);
+        document.getElementById('loadingText').textContent = '模型加载失败';
+      }
+    );
+
+    // Resize handler
+    window.addEventListener('resize', () => {
+      camera.aspect = container.clientWidth / container.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(container.clientWidth, container.clientHeight);
+    });
+
+    // ==================== Audio Engine ====================
+    let audioCtx = null;
+    let noiseBuffer = null;
+
+    function ensureAudioCtx() {
+      if (!audioCtx) {
+        audioCtx = new AudioContext();
+        // Pre-generate noise buffer for woodblock attack transient
+        const bufferSize = Math.floor(audioCtx.sampleRate * 0.02);
+        noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = noiseBuffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          data[i] = (Math.random() * 2 - 1) * 0.3;
+        }
+      }
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      return audioCtx;
+    }
+
+    function playWoodblock(time) {
+      const ctx = ensureAudioCtx();
+      const t = time || ctx.currentTime;
+
+      // Layer 1: Base tone (~800Hz, 80ms decay)
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(800, t);
+      osc1.frequency.exponentialRampToValueAtTime(400, t + 0.08);
+      gain1.gain.setValueAtTime(0.6, t);
+      gain1.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+      osc1.connect(gain1).connect(ctx.destination);
+      osc1.start(t);
+      osc1.stop(t + 0.1);
+
+      // Layer 2: Harmonic (~2400Hz, 40ms decay)
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(2400, t);
+      osc2.frequency.exponentialRampToValueAtTime(1200, t + 0.04);
+      gain2.gain.setValueAtTime(0.3, t);
+      gain2.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+      osc2.connect(gain2).connect(ctx.destination);
+      osc2.start(t);
+      osc2.stop(t + 0.06);
+
+      // Layer 3: Noise burst (10ms) - reuse pre-generated buffer
+      const noise = ctx.createBufferSource();
+      const noiseGain = ctx.createGain();
+      noise.buffer = noiseBuffer;
+      noiseGain.gain.setValueAtTime(0.4, t);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 0.01);
+      noise.connect(noiseGain).connect(ctx.destination);
+      noise.start(t);
+      noise.stop(t + 0.02);
+    }
+
+    // ==================== Beat Scheduler ====================
+    let isPlaying = false;
+    let bpm = 120;
+    let nextBeatTime = 0;
+    let schedulerTimer = null;
+    let isFirstBeat = true;
+
+    const SCHEDULE_AHEAD = 0.1; // seconds to look ahead
+    const SCHEDULER_INTERVAL = 25; // ms between scheduler checks
+
+    function getBeatInterval() {
+      return 60.0 / bpm;
+    }
+
+    function scheduleBeat(beatTime) {
+      const ctx = ensureAudioCtx();
+      const beatInterval = getBeatInterval();
+
+      // 1. Schedule audio at exact beat time
+      playWoodblock(beatTime);
+
+      // 2. Animation sync
+      // Animation: frame 1=highest, frame 30=lowest(strike), frame 60=highest
+      // Strike is at 50% of animation duration.
+      // We want the animation to loop continuously with timeScale adjusted
+      // so that one full animation cycle = one beat interval.
+      // The strike (50%) must align with beatTime.
+      if (action && animDuration) {
+        const timeScale = animDuration / beatInterval;
+        action.timeScale = timeScale;
+
+        if (isFirstBeat) {
+          isFirstBeat = false;
+          action.reset();
+          action.setLoop(THREE.LoopRepeat);
+          action.play();
+          // Offset mixer so the strike point (50%) aligns with now.
+          // We want the animation to be at 50% right now (first beat = immediate strike).
+          // Then it continues: 50%->100%(=0%)->50% = next strike after one full beat.
+          // mixer.setTime sets the global mixer time.
+          // We need action time to be at animDuration * 0.5
+          action.time = animDuration * 0.5;
+        }
+      }
+
+      // 3. Schedule UI flash at beat time
+      const delay = (beatTime - ctx.currentTime) * 1000;
+      setTimeout(() => {
+        const indicator = document.getElementById('beatIndicator');
+        indicator.classList.add('active');
+        setTimeout(() => indicator.classList.remove('active'), 100);
+      }, Math.max(0, delay));
+    }
+
+    function scheduler() {
+      if (!isPlaying) return;
+      const ctx = ensureAudioCtx();
+      while (nextBeatTime < ctx.currentTime + SCHEDULE_AHEAD) {
+        scheduleBeat(nextBeatTime);
+        nextBeatTime += getBeatInterval();
+      }
+      schedulerTimer = setTimeout(scheduler, SCHEDULER_INTERVAL);
+    }
+
+    function startMetronome() {
+      const ctx = ensureAudioCtx();
+      isPlaying = true;
+      isFirstBeat = true;
+      nextBeatTime = ctx.currentTime;
+      scheduler();
+      document.getElementById('playBtn').innerHTML = '&#9724;';
+    }
+
+    function resyncAnimation() {
+      // Re-synchronize animation phase after BPM change.
+      // Calculate time until next beat, figure out where animation should be
+      // so that 50% (strike) aligns with the next beat.
+      if (!action || !animDuration || !audioCtx) return;
+      const ctx = audioCtx;
+      const beatInterval = getBeatInterval();
+      const timeScale = animDuration / beatInterval;
+      action.timeScale = timeScale;
+
+      const timeUntilNextBeat = nextBeatTime - ctx.currentTime;
+      if (timeUntilNextBeat <= 0) return;
+
+      // The strike is at 50% of animDuration. We want the animation to reach
+      // 50% exactly at nextBeatTime. So right now the animation should be at:
+      // strikePoint - (timeUntilNextBeat * timeScale) in animation-local time
+      const strikePoint = animDuration * 0.5;
+      let targetTime = strikePoint - (timeUntilNextBeat * timeScale);
+      // Wrap into [0, animDuration)
+      targetTime = ((targetTime % animDuration) + animDuration) % animDuration;
+      action.time = targetTime;
+    }
+
+    function stopMetronome() {
+      isPlaying = false;
+      if (schedulerTimer !== null) {
+        clearTimeout(schedulerTimer);
+        schedulerTimer = null;
+      }
+      if (action) {
+        action.stop();
+      }
+      document.getElementById('playBtn').innerHTML = '&#9654;';
+      document.getElementById('beatIndicator').classList.remove('active');
+    }
+
+    // ==================== UI Wiring ====================
+    const playBtn = document.getElementById('playBtn');
+    const bpmSlider = document.getElementById('bpmSlider');
+    const bpmInput = document.getElementById('bpmInput');
+
+    playBtn.addEventListener('click', () => {
+      if (isPlaying) {
+        stopMetronome();
+      } else {
+        startMetronome();
+      }
+    });
+
+    bpmSlider.addEventListener('input', (e) => {
+      bpm = parseInt(e.target.value);
+      bpmInput.value = bpm;
+      if (isPlaying) resyncAnimation();
+    });
+
+    bpmInput.addEventListener('change', (e) => {
+      let val = parseInt(e.target.value);
+      if (isNaN(val)) val = 120;
+      val = Math.max(40, Math.min(208, val));
+      bpm = val;
+      bpmSlider.value = bpm;
+      bpmInput.value = bpm;
+      if (isPlaying) resyncAnimation();
+    });
+
+    // ==================== Render Loop ====================
+    const clock = new THREE.Clock();
+    let elapsedTime = 0;
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = clock.getDelta();
+      elapsedTime += delta;
+      if (mixer) mixer.update(delta);
+
+      // Animate particles: slow upward drift + breathing opacity
+      const posArr = particleGeometry.attributes.position.array;
+      for (let i = 0; i < PARTICLE_COUNT; i++) {
+        // Slow upward drift
+        posArr[i * 3 + 1] += speeds[i] * delta;
+        // Gentle horizontal sway
+        posArr[i * 3] += Math.sin(elapsedTime * 0.3 + phases[i]) * 0.002;
+
+        // Wrap particles that drift too high back to the bottom
+        if (posArr[i * 3 + 1] > 4) {
+          posArr[i * 3 + 1] = -4;
+          posArr[i * 3] = (Math.random() - 0.5) * 12;
+          posArr[i * 3 + 2] = (Math.random() - 0.5) * 10 - 2;
+        }
+      }
+      particleGeometry.attributes.position.needsUpdate = true;
+
+      // Breathing opacity
+      particleMaterial.opacity = 0.45 + Math.sin(elapsedTime * 0.8) * 0.15;
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    animate();
+  </script>
+</body>
+</html>
