@@ -680,8 +680,6 @@
 
     function resyncAnimation() {
       // Re-synchronize animation phase after BPM change.
-      // Calculate time until next beat, figure out where animation should be
-      // so that 50% (strike) aligns with the next beat.
       if (!action || !animDuration || !audioCtx) return;
       const ctx = audioCtx;
       const beatInterval = getBeatInterval();
@@ -691,12 +689,8 @@
       const timeUntilNextBeat = nextBeatTime - ctx.currentTime;
       if (timeUntilNextBeat <= 0) return;
 
-      // The strike is at 50% of animDuration. We want the animation to reach
-      // 50% exactly at nextBeatTime. So right now the animation should be at:
-      // strikePoint - (timeUntilNextBeat * timeScale) in animation-local time
       const strikePoint = animDuration * 0.5;
       let targetTime = strikePoint - (timeUntilNextBeat * timeScale);
-      // Wrap into [0, animDuration)
       targetTime = ((targetTime % animDuration) + animDuration) % animDuration;
       action.time = targetTime;
     }

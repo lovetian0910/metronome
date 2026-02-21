@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>运球节拍器</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      overflow: hidden;
+      background: #1a1a2e;
+      font-family: system-ui, -apple-system, sans-serif;
+      color: #e0e0e0;
+      height: 100vh;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #canvas-container {
+      width: 100%;
+      flex: 1;
+      min-height: 0;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(180deg, #0d0d1a 0%, #1a1a3e 50%, #16132b 100%);
+    }
+
+    #gif-canvas {
+      max-width: 90%;
+      max-height: 90%;
+      object-fit: contain;
+    }
+
+    .controls {
+      position: relative;
+      width: 100%;
+      padding: 20px 30px;
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      flex-shrink: 0;
+    }
+
+    .play-group {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    #playBtn {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: #e0a040;
+      border: none;
+      cursor: pointer;
+      font-size: 24px;
+      color: #1a1a2e;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s, transform 0.1s;
+      flex-shrink: 0;
+    }
+
+    #playBtn:hover {
+      background: #f0b050;
+    }
+
+    #playBtn:active {
+      transform: scale(0.95);
+    }
+
+    .bpm-control {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .bpm-label {
+      font-size: 13px;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    #bpmSlider {
+      width: 200px;
+      accent-color: #e0a040;
+      cursor: pointer;
+    }
+
+    #bpmInput {
+      width: 60px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 6px;
+      color: #e0e0e0;
+      font-size: 18px;
+      font-weight: 600;
+      text-align: center;
+      padding: 4px;
+      font-family: inherit;
+    }
+
+    #bpmInput:focus {
+      outline: none;
+      border-color: #e0a040;
+    }
+
+    #beatIndicator {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #333;
+      transition: background 0.05s, box-shadow 0.05s;
+      flex-shrink: 0;
+    }
+
+    #beatIndicator.active {
+      background: #e0a040;
+      box-shadow: 0 0 20px #e0a040, 0 0 40px rgba(224, 160, 64, 0.3);
+    }
+
+    /* ==================== Responsive Adaptation ==================== */
+
+    @media (max-width: 480px) and (orientation: portrait) {
+      .controls {
+        flex-direction: column;
+        gap: 14px;
+        padding: 14px 16px;
+      }
+
+      #playBtn {
+        width: 48px;
+        height: 48px;
+        font-size: 20px;
+      }
+
+      #beatIndicator {
+        width: 14px;
+        height: 14px;
+      }
+
+      .bpm-control {
+        width: 100%;
+        justify-content: center;
+      }
+
+      #bpmSlider {
+        width: 140px;
+      }
+
+      #bpmInput {
+        width: 54px;
+        font-size: 16px;
+      }
+
+      .bpm-label {
+        font-size: 12px;
+      }
+    }
+
+    @media (max-height: 480px) and (orientation: landscape) {
+      .controls {
+        padding: 8px 20px;
+        gap: 16px;
+      }
+
+      #playBtn {
+        width: 40px;
+        height: 40px;
+        font-size: 18px;
+      }
+
+      #beatIndicator {
+        width: 12px;
+        height: 12px;
+      }
+
+      #bpmSlider {
+        width: 120px;
+      }
+
+      #bpmInput {
+        width: 52px;
+        font-size: 15px;
+        padding: 2px;
+      }
+
+      .bpm-label {
+        font-size: 11px;
+      }
+    }
+
+    @media (min-width: 481px) and (max-width: 768px) and (orientation: portrait) {
+      .controls {
+        padding: 16px 24px;
+        gap: 20px;
+      }
+
+      #bpmSlider {
+        width: 160px;
+      }
+    }
+
+    @media (min-width: 481px) and (max-width: 1024px) and (orientation: landscape) {
+      .controls {
+        padding: 12px 24px;
+        gap: 20px;
+      }
+
+      #bpmSlider {
+        width: 180px;
+      }
+    }
+
+    @media (max-height: 360px) {
+      .controls {
+        padding: 6px 12px;
+        gap: 12px;
+      }
+
+      #playBtn {
+        width: 36px;
+        height: 36px;
+        font-size: 16px;
+      }
+
+      #beatIndicator {
+        width: 10px;
+        height: 10px;
+      }
+
+      #bpmSlider {
+        width: 100px;
+      }
+
+      #bpmInput {
+        width: 48px;
+        font-size: 14px;
+        padding: 2px;
+      }
+
+      .bpm-label {
+        font-size: 10px;
+      }
+    }
+
+    @media (hover: none) and (pointer: coarse) {
+      #playBtn {
+        min-width: 44px;
+        min-height: 44px;
+      }
+
+      #bpmSlider {
+        height: 24px;
+      }
+
+      #bpmInput {
+        min-height: 36px;
+        font-size: max(16px, 1em);
+      }
+    }
+
+    @supports (padding-bottom: env(safe-area-inset-bottom)) {
+      .controls {
+        padding-bottom: calc(12px + env(safe-area-inset-bottom));
+        padding-left: calc(16px + env(safe-area-inset-left));
+        padding-right: calc(16px + env(safe-area-inset-right));
+      }
+    }
+
+    #loadingOverlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: #1a1a2e;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      transition: opacity 0.5s;
+    }
+
+    #loadingOverlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .loading-text {
+      font-size: 18px;
+      color: #888;
+      margin-bottom: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div id="loadingOverlay">
+    <div class="loading-text" id="loadingText">加载动画中...</div>
+  </div>
+
+  <div id="canvas-container">
+    <canvas id="gif-canvas"></canvas>
+  </div>
+
+  <div class="controls">
+    <div class="play-group">
+      <button id="playBtn">&#9654;</button>
+      <div id="beatIndicator"></div>
+    </div>
+    <div class="bpm-control">
+      <span class="bpm-label">BPM</span>
+      <input type="range" id="bpmSlider" min="40" max="208" value="120">
+      <input type="number" id="bpmInput" min="40" max="208" value="120">
+    </div>
+  </div>
+
+  <script>
+    // ==================== Audio Engine ====================
+    let audioCtx = null;
+    let noiseBuffer = null;
+
+    function ensureAudioCtx() {
+      if (!audioCtx) {
+        audioCtx = new AudioContext();
+        const bufferSize = Math.floor(audioCtx.sampleRate * 0.02);
+        noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = noiseBuffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          data[i] = (Math.random() * 2 - 1) * 0.3;
+        }
+      }
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      return audioCtx;
+    }
+
+    function playWoodblock(time) {
+      const ctx = ensureAudioCtx();
+      const t = time || ctx.currentTime;
+
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(800, t);
+      osc1.frequency.exponentialRampToValueAtTime(400, t + 0.08);
+      gain1.gain.setValueAtTime(0.6, t);
+      gain1.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+      osc1.connect(gain1).connect(ctx.destination);
+      osc1.start(t);
+      osc1.stop(t + 0.1);
+
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(2400, t);
+      osc2.frequency.exponentialRampToValueAtTime(1200, t + 0.04);
+      gain2.gain.setValueAtTime(0.3, t);
+      gain2.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+      osc2.connect(gain2).connect(ctx.destination);
+      osc2.start(t);
+      osc2.stop(t + 0.06);
+
+      const noise = ctx.createBufferSource();
+      const noiseGain = ctx.createGain();
+      noise.buffer = noiseBuffer;
+      noiseGain.gain.setValueAtTime(0.4, t);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 0.01);
+      noise.connect(noiseGain).connect(ctx.destination);
+      noise.start(t);
+      noise.stop(t + 0.02);
+    }
+
+    // ==================== Beat Scheduler ====================
+    let isPlaying = false;
+    let bpm = 120;
+    let nextBeatTime = 0;
+    let schedulerTimer = null;
+
+    const SCHEDULE_AHEAD = 0.1;
+    const SCHEDULER_INTERVAL = 25;
+
+    function getBeatInterval() {
+      return 60.0 / bpm;
+    }
+
+    function scheduleBeat(beatTime) {
+      const ctx = ensureAudioCtx();
+      playWoodblock(beatTime);
+
+      const delay = (beatTime - ctx.currentTime) * 1000;
+      setTimeout(() => {
+        const indicator = document.getElementById('beatIndicator');
+        indicator.classList.add('active');
+        setTimeout(() => indicator.classList.remove('active'), 100);
+      }, Math.max(0, delay));
+    }
+
+    function scheduler() {
+      if (!isPlaying) return;
+      const ctx = ensureAudioCtx();
+      while (nextBeatTime < ctx.currentTime + SCHEDULE_AHEAD) {
+        scheduleBeat(nextBeatTime);
+        nextBeatTime += getBeatInterval();
+      }
+      schedulerTimer = setTimeout(scheduler, SCHEDULER_INTERVAL);
+    }
+
+    function startMetronome() {
+      const ctx = ensureAudioCtx();
+      isPlaying = true;
+      nextBeatTime = ctx.currentTime;
+      scheduler();
+      document.getElementById('playBtn').innerHTML = '&#9724;';
+      startGifSync();
+    }
+
+    function stopMetronome() {
+      isPlaying = false;
+      if (schedulerTimer !== null) {
+        clearTimeout(schedulerTimer);
+        schedulerTimer = null;
+      }
+      document.getElementById('playBtn').innerHTML = '&#9654;';
+      document.getElementById('beatIndicator').classList.remove('active');
+      stopGifSync();
+    }
+
+    // ==================== UI Wiring ====================
+    const playBtn = document.getElementById('playBtn');
+    const bpmSlider = document.getElementById('bpmSlider');
+    const bpmInput = document.getElementById('bpmInput');
+
+    playBtn.addEventListener('click', () => {
+      if (isPlaying) {
+        stopMetronome();
+      } else {
+        startMetronome();
+      }
+    });
+
+    bpmSlider.addEventListener('input', (e) => {
+      bpm = parseInt(e.target.value);
+      bpmInput.value = bpm;
+      if (isPlaying) resyncGif();
+    });
+
+    bpmInput.addEventListener('change', (e) => {
+      let val = parseInt(e.target.value);
+      if (isNaN(val)) val = 120;
+      val = Math.max(40, Math.min(208, val));
+      bpm = val;
+      bpmSlider.value = bpm;
+      bpmInput.value = bpm;
+      if (isPlaying) resyncGif();
+    });
+
+    // ==================== GIF Beat Sync ====================
+    const gifCanvas = document.getElementById('gif-canvas');
+    const gifCtx = gifCanvas.getContext('2d');
+    const gifFrames = [];
+    let gifTotalDuration = 0;
+    const GIF_BEATS_PER_LOOP = 2; // GIF contains 2 dribbles per loop
+
+    async function loadGifFrames(url) {
+      const resp = await fetch(url);
+      const buffer = await resp.arrayBuffer();
+      return parseGIF(new Uint8Array(buffer));
+    }
+
+    function parseGIF(data) {
+      let pos = 0;
+      const readU8 = () => data[pos++];
+      const readU16 = () => { const v = data[pos] | (data[pos+1] << 8); pos += 2; return v; };
+
+      // Header
+      pos += 6; // GIF89a
+      const width = readU16();
+      const height = readU16();
+      const packed = readU8();
+      readU8(); // bg
+      readU8(); // aspect
+
+      const hasGCT = (packed >> 7) & 1;
+      const gctSize = 2 ** ((packed & 0x07) + 1);
+      let gct = null;
+      if (hasGCT) {
+        gct = [];
+        for (let i = 0; i < gctSize; i++) {
+          gct.push([data[pos++], data[pos++], data[pos++]]);
+        }
+      }
+
+      gifCanvas.width = width;
+      gifCanvas.height = height;
+
+      const compCanvas = document.createElement('canvas');
+      compCanvas.width = width;
+      compCanvas.height = height;
+      const compCtx = compCanvas.getContext('2d');
+
+      let prevImageData = null;
+      const frames = [];
+      let delay = 100;
+      let disposalMethod = 0;
+      let transparentIndex = -1;
+
+      while (pos < data.length) {
+        const block = readU8();
+        if (block === 0x3b) break;
+
+        if (block === 0x21) {
+          const extType = readU8();
+          if (extType === 0xf9) {
+            readU8();
+            const gceFlags = readU8();
+            disposalMethod = (gceFlags >> 2) & 0x07;
+            const hasTransparent = gceFlags & 0x01;
+            delay = readU16() * 10;
+            if (delay === 0) delay = 100;
+            transparentIndex = hasTransparent ? readU8() : (readU8(), -1);
+            readU8();
+          } else {
+            while (true) {
+              const size = readU8();
+              if (size === 0) break;
+              pos += size;
+            }
+          }
+        } else if (block === 0x2c) {
+          const imgLeft = readU16();
+          const imgTop = readU16();
+          const imgWidth = readU16();
+          const imgHeight = readU16();
+          const imgPacked = readU8();
+          const hasLCT = (imgPacked >> 7) & 1;
+          const interlaced = (imgPacked >> 6) & 1;
+          let lct = null;
+          if (hasLCT) {
+            const lctSize = 2 ** ((imgPacked & 0x07) + 1);
+            lct = [];
+            for (let i = 0; i < lctSize; i++) {
+              lct.push([data[pos++], data[pos++], data[pos++]]);
+            }
+          }
+          const colorTable = lct || gct;
+
+          const minCodeSize = readU8();
+          let lzwData = [];
+          while (true) {
+            const subSize = readU8();
+            if (subSize === 0) break;
+            for (let i = 0; i < subSize; i++) lzwData.push(data[pos++]);
+          }
+          const pixels = decodeLZW(minCodeSize, lzwData, imgWidth * imgHeight);
+
+          if (disposalMethod === 3) {
+            prevImageData = compCtx.getImageData(0, 0, width, height);
+          }
+
+          if (disposalMethod === 2) {
+            compCtx.clearRect(imgLeft, imgTop, imgWidth, imgHeight);
+          }
+
+          const imgData = compCtx.getImageData(imgLeft, imgTop, imgWidth, imgHeight);
+          for (let i = 0; i < pixels.length; i++) {
+            const x = i % imgWidth;
+            const y = Math.floor(i / imgWidth);
+            const pIdx = pixels[i];
+            if (pIdx !== transparentIndex && colorTable[pIdx]) {
+              const offset = (y * imgWidth + x) * 4;
+              imgData.data[offset] = colorTable[pIdx][0];
+              imgData.data[offset + 1] = colorTable[pIdx][1];
+              imgData.data[offset + 2] = colorTable[pIdx][2];
+              imgData.data[offset + 3] = 255;
+            }
+          }
+          compCtx.putImageData(imgData, imgLeft, imgTop);
+
+          const frameCanvas = document.createElement('canvas');
+          frameCanvas.width = width;
+          frameCanvas.height = height;
+          frameCanvas.getContext('2d').drawImage(compCanvas, 0, 0);
+          frames.push({ canvas: frameCanvas, delay });
+
+          if (disposalMethod === 3 && prevImageData) {
+            compCtx.putImageData(prevImageData, 0, 0);
+          }
+
+          transparentIndex = -1;
+          disposalMethod = 0;
+        }
+      }
+      return frames;
+    }
+
+    function decodeLZW(minCodeSize, data, pixelCount) {
+      const clearCode = 1 << minCodeSize;
+      const eoiCode = clearCode + 1;
+      let codeSize = minCodeSize + 1;
+      let codeMask = (1 << codeSize) - 1;
+      let nextCode = eoiCode + 1;
+
+      let table = [];
+      for (let i = 0; i <= eoiCode; i++) {
+        table[i] = i < clearCode ? [i] : [];
+      }
+
+      let bitBuf = 0, bitCount = 0, bytePos = 0;
+      function readCode() {
+        while (bitCount < codeSize) {
+          if (bytePos >= data.length) return -1;
+          bitBuf |= data[bytePos++] << bitCount;
+          bitCount += 8;
+        }
+        const code = bitBuf & codeMask;
+        bitBuf >>= codeSize;
+        bitCount -= codeSize;
+        return code;
+      }
+
+      const output = [];
+      let prevEntry = null;
+
+      while (output.length < pixelCount) {
+        const code = readCode();
+        if (code === -1 || code === eoiCode) break;
+        if (code === clearCode) {
+          codeSize = minCodeSize + 1;
+          codeMask = (1 << codeSize) - 1;
+          nextCode = eoiCode + 1;
+          table = [];
+          for (let i = 0; i <= eoiCode; i++) {
+            table[i] = i < clearCode ? [i] : [];
+          }
+          prevEntry = null;
+          continue;
+        }
+
+        let entry;
+        if (code < nextCode) {
+          entry = table[code];
+        } else if (code === nextCode && prevEntry) {
+          entry = prevEntry.concat(prevEntry[0]);
+        } else {
+          break;
+        }
+
+        for (let i = 0; i < entry.length && output.length < pixelCount; i++) {
+          output.push(entry[i]);
+        }
+
+        if (prevEntry && nextCode < 4096) {
+          table[nextCode++] = prevEntry.concat(entry[0]);
+          if (nextCode > codeMask && codeSize < 12) {
+            codeSize++;
+            codeMask = (1 << codeSize) - 1;
+          }
+        }
+
+        prevEntry = entry;
+      }
+      return output;
+    }
+
+    // Load GIF frames
+    loadGifFrames('ezgif-589a1d8d6982a35b.gif').then(frames => {
+      gifFrames.push(...frames);
+      gifTotalDuration = frames.reduce((sum, f) => sum + f.delay, 0);
+      console.log(`GIF loaded: ${frames.length} frames, ${gifTotalDuration}ms total`);
+      if (frames.length > 0) {
+        gifCtx.drawImage(frames[0].canvas, 0, 0);
+      }
+      // Hide loading overlay
+      const overlay = document.getElementById('loadingOverlay');
+      overlay.classList.add('hidden');
+      setTimeout(() => overlay.style.display = 'none', 500);
+    });
+
+    // GIF playback state
+    let gifAnimId = null;
+    let gifStartTime = 0;
+
+    function startGifSync() {
+      if (gifFrames.length === 0) return;
+      const ctx = ensureAudioCtx();
+      gifStartTime = ctx.currentTime;
+      cancelAnimationFrame(gifAnimId);
+      renderGifFrame();
+    }
+
+    function stopGifSync() {
+      if (gifAnimId) {
+        cancelAnimationFrame(gifAnimId);
+        gifAnimId = null;
+      }
+      if (gifFrames.length > 0) {
+        gifCtx.clearRect(0, 0, gifCanvas.width, gifCanvas.height);
+        gifCtx.drawImage(gifFrames[0].canvas, 0, 0);
+      }
+    }
+
+    function renderGifFrame() {
+      if (!isPlaying || gifFrames.length === 0) return;
+      const ctx = ensureAudioCtx();
+
+      // One full GIF loop = GIF_BEATS_PER_LOOP beats
+      const beatInterval = getBeatInterval();
+      const targetLoopDuration = GIF_BEATS_PER_LOOP * beatInterval;
+      const speedRatio = gifTotalDuration / 1000 / targetLoopDuration;
+
+      const elapsed = ctx.currentTime - gifStartTime;
+      const gifTime = (elapsed * speedRatio * 1000) % gifTotalDuration;
+
+      let accum = 0;
+      let frameIdx = 0;
+      for (let i = 0; i < gifFrames.length; i++) {
+        accum += gifFrames[i].delay;
+        if (gifTime < accum) {
+          frameIdx = i;
+          break;
+        }
+        if (i === gifFrames.length - 1) frameIdx = i;
+      }
+
+      gifCtx.drawImage(gifFrames[frameIdx].canvas, 0, 0);
+
+      gifAnimId = requestAnimationFrame(renderGifFrame);
+    }
+
+    function resyncGif() {
+      if (!audioCtx || gifFrames.length === 0) return;
+      const beatInterval = getBeatInterval();
+      const targetLoopDuration = GIF_BEATS_PER_LOOP * beatInterval;
+      const speedRatio = gifTotalDuration / 1000 / targetLoopDuration;
+      const timeUntilNextBeat = nextBeatTime - audioCtx.currentTime;
+
+      const beatsFromStart = (audioCtx.currentTime - gifStartTime) / beatInterval;
+      const beatInCycle = Math.round(beatsFromStart) % GIF_BEATS_PER_LOOP;
+      const nextStrikeGifTime = beatInCycle === 0 ? 0 : gifTotalDuration / 2;
+
+      const desiredGifTimeNow = nextStrikeGifTime - (timeUntilNextBeat * speedRatio * 1000);
+      gifStartTime = audioCtx.currentTime - ((desiredGifTimeNow / 1000) / speedRatio);
+    }
+  </script>
+</body>
+</html>
