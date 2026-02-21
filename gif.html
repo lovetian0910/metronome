@@ -328,7 +328,9 @@
     </div>
   </div>
 
-  <script>
+  <script type="module">
+    import { parseGIF, decompressFrames } from 'https://cdn.jsdelivr.net/npm/gifuct-js@2.1.2/+esm';
+
     // ==================== Audio Engine ====================
     let audioCtx = null;
     let noiseBuffer = null;
@@ -470,221 +472,63 @@
     // ==================== GIF Beat Sync ====================
     const gifCanvas = document.getElementById('gif-canvas');
     const gifCtx = gifCanvas.getContext('2d');
-    const gifFrames = [];
+    const gifFrames = [];     // { canvas, delay }
     let gifTotalDuration = 0;
-    const GIF_BEATS_PER_LOOP = 2; // GIF contains 2 dribbles per loop
+    const GIF_BEATS_PER_LOOP = 2;
 
     async function loadGifFrames(url) {
       const resp = await fetch(url);
-      const buffer = await resp.arrayBuffer();
-      return parseGIF(new Uint8Array(buffer));
-    }
+      const buff = await resp.arrayBuffer();
+      const gif = parseGIF(buff);
+      const frames = decompressFrames(gif, true);
 
-    function parseGIF(data) {
-      let pos = 0;
-      const readU8 = () => data[pos++];
-      const readU16 = () => { const v = data[pos] | (data[pos+1] << 8); pos += 2; return v; };
+      if (frames.length === 0) return [];
 
-      // Header
-      pos += 6; // GIF89a
-      const width = readU16();
-      const height = readU16();
-      const packed = readU8();
-      readU8(); // bg
-      readU8(); // aspect
+      // Get full dimensions from first frame's GIF header
+      const fullWidth = gif.lsd.width;
+      const fullHeight = gif.lsd.height;
+      gifCanvas.width = fullWidth;
+      gifCanvas.height = fullHeight;
 
-      const hasGCT = (packed >> 7) & 1;
-      const gctSize = 2 ** ((packed & 0x07) + 1);
-      let gct = null;
-      if (hasGCT) {
-        gct = [];
-        for (let i = 0; i < gctSize; i++) {
-          gct.push([data[pos++], data[pos++], data[pos++]]);
-        }
-      }
-
-      gifCanvas.width = width;
-      gifCanvas.height = height;
-
+      // Compositing canvas to handle disposal methods
       const compCanvas = document.createElement('canvas');
-      compCanvas.width = width;
-      compCanvas.height = height;
+      compCanvas.width = fullWidth;
+      compCanvas.height = fullHeight;
       const compCtx = compCanvas.getContext('2d');
 
-      let prevImageData = null;
-      const frames = [];
-      let delay = 100;
-      let disposalMethod = 0;
-      let transparentIndex = -1;
+      const result = [];
+      for (const frame of frames) {
+        const { dims, delay, disposalType, patch } = frame;
 
-      while (pos < data.length) {
-        const block = readU8();
-        if (block === 0x3b) break;
+        // Save state before drawing if disposal restores to previous
+        let savedData = null;
+        if (disposalType === 3) {
+          savedData = compCtx.getImageData(0, 0, fullWidth, fullHeight);
+        }
 
-        if (block === 0x21) {
-          const extType = readU8();
-          if (extType === 0xf9) {
-            readU8();
-            const gceFlags = readU8();
-            disposalMethod = (gceFlags >> 2) & 0x07;
-            const hasTransparent = gceFlags & 0x01;
-            delay = readU16() * 10;
-            if (delay === 0) delay = 100;
-            transparentIndex = hasTransparent ? readU8() : (readU8(), -1);
-            readU8();
-          } else {
-            while (true) {
-              const size = readU8();
-              if (size === 0) break;
-              pos += size;
-            }
-          }
-        } else if (block === 0x2c) {
-          const imgLeft = readU16();
-          const imgTop = readU16();
-          const imgWidth = readU16();
-          const imgHeight = readU16();
-          const imgPacked = readU8();
-          const hasLCT = (imgPacked >> 7) & 1;
-          const interlaced = (imgPacked >> 6) & 1;
-          let lct = null;
-          if (hasLCT) {
-            const lctSize = 2 ** ((imgPacked & 0x07) + 1);
-            lct = [];
-            for (let i = 0; i < lctSize; i++) {
-              lct.push([data[pos++], data[pos++], data[pos++]]);
-            }
-          }
-          const colorTable = lct || gct;
+        // Draw this frame's patch onto the compositing canvas
+        const frameImageData = new ImageData(patch, dims.width, dims.height);
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = dims.width;
+        tempCanvas.height = dims.height;
+        tempCanvas.getContext('2d').putImageData(frameImageData, 0, 0);
+        compCtx.drawImage(tempCanvas, dims.left, dims.top);
 
-          const minCodeSize = readU8();
-          let lzwData = [];
-          while (true) {
-            const subSize = readU8();
-            if (subSize === 0) break;
-            for (let i = 0; i < subSize; i++) lzwData.push(data[pos++]);
-          }
-          const pixels = decodeLZW(minCodeSize, lzwData, imgWidth * imgHeight);
+        // Snapshot the full composited frame
+        const snapCanvas = document.createElement('canvas');
+        snapCanvas.width = fullWidth;
+        snapCanvas.height = fullHeight;
+        snapCanvas.getContext('2d').drawImage(compCanvas, 0, 0);
+        result.push({ canvas: snapCanvas, delay: delay * 10 || 100 });
 
-          if (disposalMethod === 3) {
-            prevImageData = compCtx.getImageData(0, 0, width, height);
-          }
-
-          if (disposalMethod === 2) {
-            compCtx.clearRect(imgLeft, imgTop, imgWidth, imgHeight);
-          }
-
-          // Build row mapping for interlaced images
-          let rowMap;
-          if (interlaced) {
-            rowMap = new Array(imgHeight);
-            let dest = 0;
-            for (let s = 0; s < imgHeight; s += 8) rowMap[dest++] = s;
-            for (let s = 4; s < imgHeight; s += 8) rowMap[dest++] = s;
-            for (let s = 2; s < imgHeight; s += 4) rowMap[dest++] = s;
-            for (let s = 1; s < imgHeight; s += 2) rowMap[dest++] = s;
-          }
-
-          const imgData = compCtx.getImageData(imgLeft, imgTop, imgWidth, imgHeight);
-          for (let i = 0; i < pixels.length; i++) {
-            const x = i % imgWidth;
-            const srcRow = Math.floor(i / imgWidth);
-            const y = interlaced ? rowMap[srcRow] : srcRow;
-            const pIdx = pixels[i];
-            if (pIdx !== transparentIndex && colorTable[pIdx]) {
-              const offset = (y * imgWidth + x) * 4;
-              imgData.data[offset] = colorTable[pIdx][0];
-              imgData.data[offset + 1] = colorTable[pIdx][1];
-              imgData.data[offset + 2] = colorTable[pIdx][2];
-              imgData.data[offset + 3] = 255;
-            }
-          }
-          compCtx.putImageData(imgData, imgLeft, imgTop);
-
-          const frameCanvas = document.createElement('canvas');
-          frameCanvas.width = width;
-          frameCanvas.height = height;
-          frameCanvas.getContext('2d').drawImage(compCanvas, 0, 0);
-          frames.push({ canvas: frameCanvas, delay });
-
-          if (disposalMethod === 3 && prevImageData) {
-            compCtx.putImageData(prevImageData, 0, 0);
-          }
-
-          transparentIndex = -1;
-          disposalMethod = 0;
+        // Apply disposal
+        if (disposalType === 2) {
+          compCtx.clearRect(dims.left, dims.top, dims.width, dims.height);
+        } else if (disposalType === 3 && savedData) {
+          compCtx.putImageData(savedData, 0, 0);
         }
       }
-      return frames;
-    }
-
-    function decodeLZW(minCodeSize, data, pixelCount) {
-      const clearCode = 1 << minCodeSize;
-      const eoiCode = clearCode + 1;
-      let codeSize = minCodeSize + 1;
-      let codeMask = (1 << codeSize) - 1;
-      let nextCode = eoiCode + 1;
-
-      let table = [];
-      for (let i = 0; i <= eoiCode; i++) {
-        table[i] = i < clearCode ? [i] : [];
-      }
-
-      let bitBuf = 0, bitCount = 0, bytePos = 0;
-      function readCode() {
-        while (bitCount < codeSize) {
-          if (bytePos >= data.length) return -1;
-          bitBuf |= data[bytePos++] << bitCount;
-          bitCount += 8;
-        }
-        const code = bitBuf & codeMask;
-        bitBuf >>= codeSize;
-        bitCount -= codeSize;
-        return code;
-      }
-
-      const output = [];
-      let prevEntry = null;
-
-      while (output.length < pixelCount) {
-        const code = readCode();
-        if (code === -1 || code === eoiCode) break;
-        if (code === clearCode) {
-          codeSize = minCodeSize + 1;
-          codeMask = (1 << codeSize) - 1;
-          nextCode = eoiCode + 1;
-          table = [];
-          for (let i = 0; i <= eoiCode; i++) {
-            table[i] = i < clearCode ? [i] : [];
-          }
-          prevEntry = null;
-          continue;
-        }
-
-        let entry;
-        if (code < nextCode) {
-          entry = table[code];
-        } else if (code === nextCode && prevEntry) {
-          entry = prevEntry.concat(prevEntry[0]);
-        } else {
-          break;
-        }
-
-        for (let i = 0; i < entry.length && output.length < pixelCount; i++) {
-          output.push(entry[i]);
-        }
-
-        if (prevEntry && nextCode < 4096) {
-          table[nextCode++] = prevEntry.concat(entry[0]);
-          if (nextCode > codeMask && codeSize < 12) {
-            codeSize++;
-            codeMask = (1 << codeSize) - 1;
-          }
-        }
-
-        prevEntry = entry;
-      }
-      return output;
+      return result;
     }
 
     // Load GIF frames
@@ -695,7 +539,6 @@
       if (frames.length > 0) {
         gifCtx.drawImage(frames[0].canvas, 0, 0);
       }
-      // Hide loading overlay
       const overlay = document.getElementById('loadingOverlay');
       overlay.classList.add('hidden');
       setTimeout(() => overlay.style.display = 'none', 500);
@@ -719,7 +562,6 @@
         gifAnimId = null;
       }
       if (gifFrames.length > 0) {
-        gifCtx.clearRect(0, 0, gifCanvas.width, gifCanvas.height);
         gifCtx.drawImage(gifFrames[0].canvas, 0, 0);
       }
     }
@@ -728,7 +570,6 @@
       if (!isPlaying || gifFrames.length === 0) return;
       const ctx = ensureAudioCtx();
 
-      // One full GIF loop = GIF_BEATS_PER_LOOP beats
       const beatInterval = getBeatInterval();
       const targetLoopDuration = GIF_BEATS_PER_LOOP * beatInterval;
       const speedRatio = gifTotalDuration / 1000 / targetLoopDuration;

@@ -12,7 +12,11 @@
       "Bash(/tmp/preview_gif_html.py:*)",
       "Bash(/tmp/preview_gif_html_server.py:*)",
       "Bash(file:*)",
-      "Bash(git -C /Users/kuangjianwei/AI_Discover/metronome_deploy remote -v)"
+      "Bash(git -C /Users/kuangjianwei/AI_Discover/metronome_deploy remote -v)",
+      "WebSearch",
+      "WebFetch(domain:www.npmjs.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:cdn.jsdelivr.net)"
     ]
   }
 }
