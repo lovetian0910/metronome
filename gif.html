@@ -574,10 +574,22 @@
             compCtx.clearRect(imgLeft, imgTop, imgWidth, imgHeight);
           }
 
+          // Build row mapping for interlaced images
+          let rowMap;
+          if (interlaced) {
+            rowMap = new Array(imgHeight);
+            let dest = 0;
+            for (let s = 0; s < imgHeight; s += 8) rowMap[dest++] = s;
+            for (let s = 4; s < imgHeight; s += 8) rowMap[dest++] = s;
+            for (let s = 2; s < imgHeight; s += 4) rowMap[dest++] = s;
+            for (let s = 1; s < imgHeight; s += 2) rowMap[dest++] = s;
+          }
+
           const imgData = compCtx.getImageData(imgLeft, imgTop, imgWidth, imgHeight);
           for (let i = 0; i < pixels.length; i++) {
             const x = i % imgWidth;
-            const y = Math.floor(i / imgWidth);
+            const srcRow = Math.floor(i / imgWidth);
+            const y = interlaced ? rowMap[srcRow] : srcRow;
             const pIdx = pixels[i];
             if (pIdx !== transparentIndex && colorTable[pIdx]) {
               const offset = (y * imgWidth + x) * 4;
