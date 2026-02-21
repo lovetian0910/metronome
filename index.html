@@ -198,7 +198,7 @@
     import * as THREE from 'three';
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-    import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+    import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
     // ==================== Three.js Scene ====================
     const container = document.getElementById('canvas-container');
@@ -316,10 +316,13 @@
     let action = null;
     let animDuration = 0; // original animation duration in seconds
 
+    const dracoLoader = new DRACOLoader();
+    dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/');
+
     const loader = new GLTFLoader();
-    loader.setMeshoptDecoder(MeshoptDecoder);
+    loader.setDRACOLoader(dracoLoader);
     loader.load(
-      'test4-optimized.glb',
+      'zhoushen_compressed.glb',
       (gltf) => {
         scene.add(gltf.scene);
 
@@ -334,7 +337,7 @@
         // Animation setup
         if (gltf.animations.length > 0) {
           mixer = new THREE.AnimationMixer(gltf.scene);
-          const clip = gltf.animations[0];
+          const clip = gltf.animations[3];
           animDuration = clip.duration;
           action = mixer.clipAction(clip);
           action.setLoop(THREE.LoopRepeat);
