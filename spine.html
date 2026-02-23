@@ -327,7 +327,7 @@
     </div>
   </div>
 
-  <script src="spine-canvas.js"></script>
+  <script src="spine-webgl.js"></script>
   <script>
     // ==================== Audio Engine ====================
     var audioCtx = null;
@@ -469,10 +469,8 @@
 
     // ==================== Spine Animation ====================
     var canvas = document.getElementById('spine-canvas');
-    var context = canvas.getContext('2d');
-    var skeletonRenderer = new spine.canvas.SkeletonRenderer(context);
-    // Enable triangle rendering for mesh attachments
-    skeletonRenderer.triangleRendering = true;
+    var context = new spine.webgl.ManagedWebGLRenderingContext(canvas, { alpha: true });
+    var sceneRenderer = new spine.webgl.SceneRenderer(canvas, context, true);
 
     var skeleton = null;
     var animState = null;
@@ -481,10 +479,9 @@
     var SPINE_BEATS_PER_LOOP = 2;  // 2 drum hits per animation loop
 
     // Load Spine assets
-    var assetManager = new spine.canvas.AssetManager();
+    var assetManager = new spine.webgl.AssetManager(context);
     assetManager.loadText('panda/panda.json');
-    assetManager.loadText('panda/panda.atlas');
-    assetManager.loadTexture('panda/panda.png');
+    assetManager.loadTextureAtlas('panda/panda.atlas');
 
     function waitForAssets() {
       if (assetManager.isLoadingComplete()) {
@@ -501,15 +498,12 @@
     requestAnimationFrame(waitForAssets);
 
     function initSpine() {
-      // Create atlas with texture lookup — disable premultiplied alpha
-      var atlasText = assetManager.get('panda/panda.atlas');
-      var atlas = new spine.TextureAtlas(atlasText, function(path) {
-        return assetManager.get('panda/' + path);
-      });
+      // Get TextureAtlas directly from webgl AssetManager
+      var atlas = assetManager.get('panda/panda.atlas');
 
       var atlasLoader = new spine.AtlasAttachmentLoader(atlas);
       var skeletonJson = new spine.SkeletonJson(atlasLoader);
-      // Patch version to bypass 3.8.75 blocklist in spine-canvas runtime
+      // Patch version to bypass 3.8.75 blocklist in spine runtime
       var skeletonJsonData = JSON.parse(assetManager.get('panda/panda.json'));
       if (skeletonJsonData.skeleton && skeletonJsonData.skeleton.spine === '3.8.75') {
         skeletonJsonData.skeleton.spine = '3.8.99';
@@ -517,7 +511,7 @@
       var skeletonData = skeletonJson.readSkeletonData(skeletonJsonData);
 
       skeleton = new spine.Skeleton(skeletonData);
-      skeleton.scaleY = -1; // Canvas 2D Y-axis is flipped vs Spine
+      // WebGL Y-axis is already up (same as Spine), no need for scaleY = -1
       skeleton.setToSetupPose();
       skeleton.updateWorldTransform();
 
@@ -557,33 +551,37 @@
       var cw = container.clientWidth;
       var ch = container.clientHeight;
 
-      // Use device pixel ratio for sharp rendering
-      var dpr = window.devicePixelRatio || 1;
-      canvas.width = cw * dpr;
-      canvas.height = ch * dpr;
+      canvas.width = cw;
+      canvas.height = ch;
       canvas.style.width = cw + 'px';
       canvas.style.height = ch + 'px';
+
+      // Update WebGL viewport
+      context.gl.viewport(0, 0, cw, ch);
+
+      // Update camera to show the skeleton centered
+      var camera = sceneRenderer.camera;
+      camera.viewportWidth = cw;
+      camera.viewportHeight = ch;
+
+      // Fit skeleton in view with some padding
+      var centerX = animBounds.offset.x + animBounds.size.x / 2;
+      var centerY = animBounds.offset.y + animBounds.size.y / 2;
+      camera.position.x = centerX;
+      camera.position.y = centerY;
+
+      // Scale to fit with 1.2x padding
+      var scaleX = animBounds.size.x / cw;
+      var scaleY = animBounds.size.y / ch;
+      var scale = Math.max(scaleX, scaleY) * 1.2;
+      camera.viewportWidth = cw * scale;
+      camera.viewportHeight = ch * scale;
+      camera.update();
     }
 
     window.addEventListener('resize', function() {
       resizeCanvas();
     });
-
-    function setupCanvasTransform() {
-      if (!animBounds) return;
-      var centerX = animBounds.offset.x + animBounds.size.x / 2;
-      var centerY = animBounds.offset.y + animBounds.size.y / 2;
-      var scaleX = animBounds.size.x / canvas.width;
-      var scaleY = animBounds.size.y / canvas.height;
-      var scale = Math.max(scaleX, scaleY) * 1.2;
-      var width = canvas.width * scale;
-      var height = canvas.height * scale;
-
-      context.setTransform(1, 0, 0, 1, 0, 0);
-      context.scale(1 / scale, 1 / scale);
-      context.translate(-centerX, -centerY);
-      context.translate(width / 2, height / 2);
-    }
 
     function drawSpineFrame(delta) {
       if (!skeleton || !animState) return;
@@ -592,13 +590,13 @@
       animState.apply(skeleton);
       skeleton.updateWorldTransform();
 
-      context.save();
-      context.setTransform(1, 0, 0, 1, 0, 0);
-      context.clearRect(0, 0, canvas.width, canvas.height);
-      context.restore();
+      var gl = context.gl;
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
 
-      setupCanvasTransform();
-      skeletonRenderer.draw(skeleton);
+      sceneRenderer.begin();
+      sceneRenderer.drawSkeleton(skeleton, false);
+      sceneRenderer.end();
     }
 
     // ==================== Spine Beat Sync ====================
