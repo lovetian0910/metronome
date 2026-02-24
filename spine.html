@@ -116,6 +116,40 @@
       border-color: #e0a040;
     }
 
+    .bpm-step-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .bpm-step-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #e0a040;
+      font-size: 18px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s, transform 0.1s;
+      flex-shrink: 0;
+      font-family: inherit;
+      line-height: 1;
+      padding: 0;
+    }
+
+    .bpm-step-btn:hover {
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    .bpm-step-btn:active {
+      transform: scale(0.95);
+    }
+
     #beatIndicator {
       width: 16px;
       height: 16px;
@@ -164,6 +198,12 @@
         font-size: 16px;
       }
 
+      .bpm-step-btn {
+        width: 28px;
+        height: 28px;
+        font-size: 16px;
+      }
+
       .bpm-label {
         font-size: 12px;
       }
@@ -194,6 +234,12 @@
         width: 52px;
         font-size: 15px;
         padding: 2px;
+      }
+
+      .bpm-step-btn {
+        width: 28px;
+        height: 28px;
+        font-size: 15px;
       }
 
       .bpm-label {
@@ -250,6 +296,12 @@
         padding: 2px;
       }
 
+      .bpm-step-btn {
+        width: 24px;
+        height: 24px;
+        font-size: 14px;
+      }
+
       .bpm-label {
         font-size: 10px;
       }
@@ -268,6 +320,11 @@
       #bpmInput {
         min-height: 36px;
         font-size: max(16px, 1em);
+      }
+
+      .bpm-step-btn {
+        min-width: 44px;
+        min-height: 44px;
       }
     }
 
@@ -325,7 +382,11 @@
     <div class="bpm-control">
       <span class="bpm-label">BPM</span>
       <input type="range" id="bpmSlider" min="40" max="208" value="120">
-      <input type="number" id="bpmInput" min="40" max="208" value="120">
+      <div class="bpm-step-group">
+        <button class="bpm-step-btn" id="bpmDecBtn">&minus;</button>
+        <input type="number" id="bpmInput" min="40" max="208" value="120">
+        <button class="bpm-step-btn" id="bpmIncBtn">+</button>
+      </div>
     </div>
   </div>
 
@@ -544,6 +605,8 @@
     var playBtn = document.getElementById('playBtn');
     var bpmSlider = document.getElementById('bpmSlider');
     var bpmInput = document.getElementById('bpmInput');
+    var bpmDecBtn = document.getElementById('bpmDecBtn');
+    var bpmIncBtn = document.getElementById('bpmIncBtn');
 
     playBtn.addEventListener('click', function() {
       if (isPlaying) {
@@ -568,6 +631,16 @@
       bpmInput.value = bpm;
       if (isPlaying) resyncSpine();
     });
+
+    function stepBpm(delta) {
+      bpm = Math.max(40, Math.min(208, bpm + delta));
+      bpmSlider.value = bpm;
+      bpmInput.value = bpm;
+      if (isPlaying) resyncSpine();
+    }
+
+    bpmDecBtn.addEventListener('click', function() { stepBpm(-1); });
+    bpmIncBtn.addEventListener('click', function() { stepBpm(1); });
 
     // ==================== Spine Animation ====================
     var canvas = document.getElementById('spine-canvas');
