@@ -586,44 +586,42 @@
 
       if (frames.length === 0) return [];
 
-      // Get full dimensions from first frame's GIF header
       const fullWidth = gif.lsd.width;
       const fullHeight = gif.lsd.height;
       gifCanvas.width = fullWidth;
       gifCanvas.height = fullHeight;
 
-      // Compositing canvas to handle disposal methods
+      // Single compositing canvas, reused for all frames
       const compCanvas = document.createElement('canvas');
       compCanvas.width = fullWidth;
       compCanvas.height = fullHeight;
       const compCtx = compCanvas.getContext('2d');
 
+      // Single temp canvas for drawing frame patches
+      const tempCanvas = document.createElement('canvas');
+      const tempCtx = tempCanvas.getContext('2d');
+
       const result = [];
       for (const frame of frames) {
         const { dims, delay, disposalType, patch } = frame;
 
-        // Save state before drawing if disposal restores to previous
         let savedData = null;
         if (disposalType === 3) {
           savedData = compCtx.getImageData(0, 0, fullWidth, fullHeight);
         }
 
-        // Draw this frame's patch onto the compositing canvas
-        const frameImageData = new ImageData(patch, dims.width, dims.height);
-        const tempCanvas = document.createElement('canvas');
+        // Draw patch onto compositing canvas via reusable temp canvas
         tempCanvas.width = dims.width;
         tempCanvas.height = dims.height;
-        tempCanvas.getContext('2d').putImageData(frameImageData, 0, 0);
+        tempCtx.putImageData(new ImageData(patch, dims.width, dims.height), 0, 0);
         compCtx.drawImage(tempCanvas, dims.left, dims.top);
 
-        // Snapshot the full composited frame
-        const snapCanvas = document.createElement('canvas');
-        snapCanvas.width = fullWidth;
-        snapCanvas.height = fullHeight;
-        snapCanvas.getContext('2d').drawImage(compCanvas, 0, 0);
-        result.push({ canvas: snapCanvas, delay: delay || 100 });
+        // Store as ImageData instead of creating a new canvas per frame
+        result.push({
+          imageData: compCtx.getImageData(0, 0, fullWidth, fullHeight),
+          delay: delay || 100
+        });
 
-        // Apply disposal
         if (disposalType === 2) {
           compCtx.clearRect(dims.left, dims.top, dims.width, dims.height);
         } else if (disposalType === 3 && savedData) {
@@ -639,11 +637,14 @@
       gifTotalDuration = frames.reduce((sum, f) => sum + f.delay, 0);
       console.log(`GIF loaded: ${frames.length} frames, ${gifTotalDuration}ms total`);
       if (frames.length > 0) {
-        gifCtx.drawImage(frames[0].canvas, 0, 0);
+        gifCtx.putImageData(frames[0].imageData, 0, 0);
       }
       const overlay = document.getElementById('loadingOverlay');
       overlay.classList.add('hidden');
       setTimeout(() => overlay.style.display = 'none', 500);
+    }).catch(err => {
+      console.error('GIF load error:', err);
+      document.getElementById('loadingText').textContent = '加载失败';
     });
 
     // GIF playback state
@@ -664,7 +665,7 @@
         gifAnimId = null;
       }
       if (gifFrames.length > 0) {
-        gifCtx.drawImage(gifFrames[0].canvas, 0, 0);
+        gifCtx.putImageData(gifFrames[0].imageData, 0, 0);
       }
     }
 
@@ -690,7 +691,7 @@
         if (i === gifFrames.length - 1) frameIdx = i;
       }
 
-      gifCtx.drawImage(gifFrames[frameIdx].canvas, 0, 0);
+      gifCtx.putImageData(gifFrames[frameIdx].imageData, 0, 0);
 
       gifAnimId = requestAnimationFrame(renderGifFrame);
     }
