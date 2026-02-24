@@ -329,7 +329,7 @@
   </div>
 
   <script type="module">
-    import { parseGIF, decompressFrames } from 'https://cdn.jsdelivr.net/npm/gifuct-js@2.1.2/+esm';
+    import { parseGIF, decompressFrames } from './gifuct-js.esm.js';
 
     // ==================== Audio Engine ====================
     let audioCtx = null;
@@ -519,7 +519,7 @@
         snapCanvas.width = fullWidth;
         snapCanvas.height = fullHeight;
         snapCanvas.getContext('2d').drawImage(compCanvas, 0, 0);
-        result.push({ canvas: snapCanvas, delay: delay * 10 || 100 });
+        result.push({ canvas: snapCanvas, delay: delay || 100 });
 
         // Apply disposal
         if (disposalType === 2) {
