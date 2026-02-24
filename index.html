@@ -342,6 +342,8 @@
     </div>
   </div>
 
+  <audio id="silentAudio" loop playsinline style="display:none"></audio>
+
   <div id="canvas-container">
     <canvas id="three-canvas"></canvas>
   </div>
@@ -610,28 +612,74 @@
     let bpm = 120;
     let nextBeatTime = 0;
     let schedulerTimer = null;
+    let schedulerWorker = null;
     let isFirstBeat = true;
 
-    const SCHEDULE_AHEAD = 0.1; // seconds to look ahead
-    const SCHEDULER_INTERVAL = 25; // ms between scheduler checks
+    const SCHEDULE_AHEAD_NORMAL = 0.1;
+    const SCHEDULE_AHEAD_BACKGROUND = 5;
+    const SCHEDULER_INTERVAL = 25;
+    let currentScheduleAhead = SCHEDULE_AHEAD_NORMAL;
 
     function getBeatInterval() {
       return 60.0 / bpm;
+    }
+
+    // --- Silent audio keep-alive ---
+    const silentAudioEl = document.getElementById('silentAudio');
+
+    function initSilentAudio() {
+      if (!silentAudioEl) return;
+      const sampleRate = 22050;
+      const numSamples = sampleRate;
+      const dataSize = numSamples * 2;
+      const buffer = new ArrayBuffer(44 + dataSize);
+      const v = new DataView(buffer);
+      const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+      w(0,'RIFF'); v.setUint32(4,36+dataSize,true); w(8,'WAVE');
+      w(12,'fmt '); v.setUint32(16,16,true); v.setUint16(20,1,true);
+      v.setUint16(22,1,true); v.setUint32(24,sampleRate,true);
+      v.setUint32(28,sampleRate*2,true); v.setUint16(32,2,true);
+      v.setUint16(34,16,true); w(36,'data'); v.setUint32(40,dataSize,true);
+      silentAudioEl.src = URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }));
+    }
+
+    function startSilentAudio() {
+      if (silentAudioEl) silentAudioEl.play().catch(() => {});
+    }
+
+    function stopSilentAudio() {
+      if (silentAudioEl) silentAudioEl.pause();
+    }
+
+    // --- Web Worker scheduler ---
+    function createSchedulerWorker() {
+      try {
+        schedulerWorker = new Worker('scheduler-worker.js');
+        schedulerWorker.onmessage = (e) => {
+          if (e.data.command === 'tick') scheduleBeats();
+        };
+        return true;
+      } catch (err) {
+        console.warn('Worker creation failed, using setTimeout fallback:', err);
+        return false;
+      }
+    }
+
+    function scheduleBeats() {
+      if (!isPlaying) return;
+      const ctx = ensureAudioCtx();
+      while (nextBeatTime < ctx.currentTime + currentScheduleAhead) {
+        scheduleBeat(nextBeatTime);
+        nextBeatTime += getBeatInterval();
+      }
     }
 
     function scheduleBeat(beatTime) {
       const ctx = ensureAudioCtx();
       const beatInterval = getBeatInterval();
 
-      // 1. Schedule audio at exact beat time
       playWoodblock(beatTime);
 
-      // 2. Animation sync
-      // Animation: frame 1=highest, frame 30=lowest(strike), frame 60=highest
-      // Strike is at 50% of animation duration.
-      // We want the animation to loop continuously with timeScale adjusted
-      // so that one full animation cycle = one beat interval.
-      // The strike (50%) must align with beatTime.
       if (action && animDuration) {
         const timeScale = animDuration / beatInterval;
         action.timeScale = timeScale;
@@ -641,16 +689,10 @@
           action.reset();
           action.setLoop(THREE.LoopRepeat);
           action.play();
-          // Offset mixer so the strike point (50%) aligns with now.
-          // We want the animation to be at 50% right now (first beat = immediate strike).
-          // Then it continues: 50%->100%(=0%)->50% = next strike after one full beat.
-          // mixer.setTime sets the global mixer time.
-          // We need action time to be at animDuration * 0.5
           action.time = animDuration * 0.5;
         }
       }
 
-      // 3. Schedule UI flash at beat time
       const delay = (beatTime - ctx.currentTime) * 1000;
       setTimeout(() => {
         const indicator = document.getElementById('beatIndicator');
@@ -659,27 +701,75 @@
       }, Math.max(0, delay));
     }
 
-    function scheduler() {
-      if (!isPlaying) return;
-      const ctx = ensureAudioCtx();
-      while (nextBeatTime < ctx.currentTime + SCHEDULE_AHEAD) {
-        scheduleBeat(nextBeatTime);
-        nextBeatTime += getBeatInterval();
+    function startScheduler() {
+      createSchedulerWorker();
+      if (schedulerWorker) {
+        schedulerWorker.postMessage({ command: 'start', interval: SCHEDULER_INTERVAL });
       }
-      schedulerTimer = setTimeout(scheduler, SCHEDULER_INTERVAL);
+      function fallbackTick() {
+        if (!isPlaying) return;
+        scheduleBeats();
+        schedulerTimer = setTimeout(fallbackTick, SCHEDULER_INTERVAL);
+      }
+      fallbackTick();
     }
+
+    function stopScheduler() {
+      if (schedulerWorker) {
+        schedulerWorker.postMessage({ command: 'stop' });
+        schedulerWorker.terminate();
+        schedulerWorker = null;
+      }
+      if (schedulerTimer !== null) {
+        clearTimeout(schedulerTimer);
+        schedulerTimer = null;
+      }
+    }
+
+    // --- Visibility change & Media Session ---
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        if (isPlaying) {
+          currentScheduleAhead = SCHEDULE_AHEAD_BACKGROUND;
+          scheduleBeats();
+          startSilentAudio();
+        }
+      } else {
+        currentScheduleAhead = SCHEDULE_AHEAD_NORMAL;
+        stopSilentAudio();
+        if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+      }
+    });
+
+    function setupMediaSession() {
+      if (!('mediaSession' in navigator)) return;
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: '木鱼节拍器',
+        artist: 'Metronome'
+      });
+      navigator.mediaSession.setActionHandler('play', () => { if (!isPlaying) startMetronome(); });
+      navigator.mediaSession.setActionHandler('pause', () => { if (isPlaying) stopMetronome(); });
+    }
+
+    ['touchstart', 'touchend', 'click'].forEach((evt) => {
+      document.addEventListener(evt, () => {
+        if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+      }, { passive: true });
+    });
 
     function startMetronome() {
       const ctx = ensureAudioCtx();
       isPlaying = true;
       isFirstBeat = true;
       nextBeatTime = ctx.currentTime;
-      scheduler();
+      currentScheduleAhead = SCHEDULE_AHEAD_NORMAL;
+      startScheduler();
+      startSilentAudio();
+      setupMediaSession();
       document.getElementById('playBtn').innerHTML = '&#9724;';
     }
 
     function resyncAnimation() {
-      // Re-synchronize animation phase after BPM change.
       if (!action || !animDuration || !audioCtx) return;
       const ctx = audioCtx;
       const beatInterval = getBeatInterval();
@@ -697,10 +787,8 @@
 
     function stopMetronome() {
       isPlaying = false;
-      if (schedulerTimer !== null) {
-        clearTimeout(schedulerTimer);
-        schedulerTimer = null;
-      }
+      stopScheduler();
+      stopSilentAudio();
       if (action) {
         action.stop();
       }
@@ -738,6 +826,7 @@
     });
 
     // ==================== Render Loop ====================
+    initSilentAudio();
     const clock = new THREE.Clock();
     let elapsedTime = 0;
 
